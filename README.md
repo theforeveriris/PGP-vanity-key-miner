@@ -2,6 +2,8 @@
 
 一个用于生成具有特殊指纹的 PGP 密钥对的全栈 Web 应用。
 
+> **项目来源**：本项目最初脱胎于 [theforeveriris/Plan-for-Vibe-Coding](https://github.com/theforeveriris/Plan-for-Vibe-Coding) 的项目实例部分，现已独立维护。以后所有提交均在此仓库进行。
+
 ## 项目概述
 
 PGP Vanity Key Miner 是一个类似于加密货币 vanity address 生成器的工具，但专门针对 OpenPGP 公钥指纹/ID。它可以批量生成 PGP 密钥对，并筛选出具有特殊模式的公钥。
