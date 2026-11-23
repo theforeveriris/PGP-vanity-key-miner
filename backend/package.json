@@ -9,7 +9,6 @@
     "lint": "next lint"
   },
   "dependencies": {
-    "better-sqlite3": "^9.4.3",
     "eckey-utils": "^2.0.0",
     "jszip": "^3.10.2",
     "next": "^14.2.3",

@@ -4,3 +4,6 @@ dist/
 data/
 *.log
 *.tsbuildinfo
+
+# CUDA 编译产物（见 gpu/build.ps1 重编译）
+pgp_gpu_miner.exe

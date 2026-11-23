@@ -111,3 +111,45 @@ pnpm dev
 ## 许可证
 
 MIT License
+
+## GPU 加速引擎 (CUDA)
+
+v5 优化后(GTX 1650 实测):
+
+| 引擎 | 速率 | 说明 |
+|------|------|------|
+| CPU 单线程 | ~6.2k keys/s | 参考基线 |
+| CPU 满载 (6 workers) | ~37k keys/s | 6× |
+| GPU v1 | ~700k keys/s | 主机预筛,逐批回传 700KB |
+| GPU v2 | ~838k keys/s | GPU 侧规则预筛 + 1M/批 |
+| **GPU v5** | **~952k keys/s (纯算) / ~891k/s (含命中处理)** | **融合 ChaCha RNG + 单 kernel + 双槽事件流水线** |
+
+### v5 架构变化
+
+- **CPU↔GPU 流量 32MB/批 → 64B/批**: 标量不再由 CPU 生成上传——每批主机只上传 48 字节 OS CSPRNG 种子(BCryptGenRandom),内核内 ChaCha8(RFC 8439 向量验证)逐线程派生标量。计数器空间 (batchIdx·2^22 + threadIdx) 会话内不复用
+- **单 kernel 融合**: RNG → 标量乘 → SHA-1 → keyId → 规则预筛 → 命中数据(d/x/y/kid)内核内压实,消除中间 64MB 全局内存往返与第二 kernel 启动
+- **双槽事件流水线**: 两批 kernel 常驻 GPU 队列,主机仅同步 4B hitCount 事件,CPU 不再阻塞 GPU(GPU 永不空转等主机)
+- **零乘法 REDC 行**: CIOS 蒙哥马利乘的归约行利用 P-256 素数 limb 形状 [ff,ff,ff,00,00,00,01,ff] 全部化为移位/加减(证明: gpu/verify_specialred.mjs 200k 用例位级比对),域乘 ~-50% 多项式开销
+- **未采纳(实测记录)**: plain 域特形约减(335k/s,12 轮折叠过重)、warp 批量求逆(736k/s,SIMT 下 32 lane 冗余费马链无净收益)——两者均经 42 向量位级验证正确,纯属吞吐回退,代码见 git 历史与 gpu/verify_*.mjs 证明脚本
+- **启动自检 + 零信任复验不变**: 1G/2G 常数比对 → OpenSSL 曲线一致性 → 指纹重算 → 真实 JS 规则引擎,全过才落库
+
+### 支持的 GPU 规则类型
+
+`consecutive` / `repeating` / `palindrome` / `leading_zeros` / `special_date` / `custom_regex`(可提取必需字面量的正则);规则数 ≤8;超出或无字面量正则自动回落 CPU。
+
+### 正确性验证
+
+- 42 标量(边界+随机)与 OpenSSL 位级完全一致 (x, y, keyId);实挖命中经 BigInt 参考标量乘交叉一致 (test_consistency.mjs)
+- 零乘 REDC 行: verify_specialred.mjs 200k 随机对标量级比对 == 参考 CIOS
+- ChaCha8: RFC 8439 2.3.2 测试向量 + node:crypto keystream 双重验证
+- 实挖命中经零信任链复验全绿并落库
+
+### 重编译
+
+```powershell
+cd backend/gpu
+$env:CUDA_ROOT = '<cuda toolkit path>'   # 例如 D:\ZcodeData\downloads\cuda135
+powershell -ExecutionPolicy Bypass -File build.ps1
+```
+
+注意: CUDA 源码必须纯 ASCII (nvcc/cicc 在 cp936 代码页下会把 UTF-8 注释误读吞换行)。

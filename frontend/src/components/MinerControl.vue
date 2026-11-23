@@ -61,6 +61,24 @@
           AND
         </button>
       </div>
+      <div class="logic-toggle" role="group" aria-label="挖掘引擎">
+        <button
+          class="pill-tab"
+          :class="{ active: engine === 'cpu' }"
+          @click="engine = 'cpu'"
+          title="CPU 多线程挖掘"
+        >
+          CPU
+        </button>
+        <button
+          class="pill-tab"
+          :class="{ active: engine === 'gpu' }"
+          @click="engine = 'gpu'"
+          title="GPU 挖掘(CUDA)——规则不受支持时自动回落 CPU"
+        >
+          GPU
+        </button>
+      </div>
       <button
         @click="startMining"
         :disabled="isRunning || !hasEnabledRules"
@@ -101,6 +119,9 @@ const threads = ref(4)
 
 // 独立规则之间的组合逻辑
 const logicOperator = ref<'AND' | 'OR'>('OR')
+
+// 挖掘引擎: cpu | gpu(CUDA)
+const engine = ref<'cpu' | 'gpu'>('cpu')
 
 // 计算启用的独立规则数量
 const enabledIndependentRulesCount = computed(() => {
@@ -158,6 +179,7 @@ function startMining() {
     logicOperator: logicOperator.value,
     groups: enabledGroups,
     ruleConfig: ruleConfig,
+    engine: engine.value,
   })
 }
 

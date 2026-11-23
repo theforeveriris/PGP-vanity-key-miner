@@ -53,6 +53,7 @@ const StartMinerSchema = z.object({
   threads: z.number().min(1).max(32).default(4),
   logicOperator: z.enum(['AND', 'OR']).default('OR'),
   groups: z.array(RuleGroupSchema).default([]),
+  engine: z.enum(['cpu', 'gpu']).default('cpu'),
 });
 
 export async function POST(request: NextRequest) {
@@ -64,7 +65,8 @@ export async function POST(request: NextRequest) {
       data.patterns as PatternRule[],
       data.threads,
       data.logicOperator,
-      data.groups as unknown as RuleGroup[]
+      data.groups as unknown as RuleGroup[],
+      data.engine
     );
 
     return NextResponse.json({ success: true, taskId }, { headers: corsHeaders });

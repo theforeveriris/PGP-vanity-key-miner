@@ -221,6 +221,7 @@ export interface StartMinerRequest {
   logicOperator?: 'AND' | 'OR'; // 独立规则之间的组合逻辑
   groups?: RuleGroup[]; // 规则组（组内规则按各组自身的 AND/OR 组合）
   ruleConfig?: RuleConfiguration; // 规则引擎配置
+  engine?: 'cpu' | 'gpu'; // 挖掘引擎: gpu 为 CUDA 加速,规则不受支持时后端自动回落 cpu
 }
 
 export interface StartMinerResponse {

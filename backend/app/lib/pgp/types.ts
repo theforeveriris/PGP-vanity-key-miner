@@ -138,6 +138,8 @@ export interface MiningTask {
   logicOperator?: 'AND' | 'OR';
   // 规则组（组内规则按各组自身的 AND/OR 组合）
   groups?: RuleGroup[];
+  // 挖掘引擎: cpu(worker 线程) | gpu(CUDA,规则不受支持时自动回落 cpu)
+  engine?: 'cpu' | 'gpu';
 }
 
 export interface SpecialKey {

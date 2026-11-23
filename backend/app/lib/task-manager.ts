@@ -7,6 +7,9 @@ import { createTask, updateTaskProgress, stopTask, getTask, createSpecialKey, sa
 
 // Worker 线程入口（纯 JS，避免运行时 TS 编译依赖）
 const WORKER_PATH = path.join(process.cwd(), 'app', 'workers', 'mining.worker.mjs');
+const GPU_WORKER_PATH = path.join(process.cwd(), 'app', 'workers', 'gpu.worker.mjs');
+
+export type Engine = 'cpu' | 'gpu';
 
 // 匹配消息推送限流（条/秒，以及允许的突发量）
 const MAX_MATCH_PER_SEC = 20;
@@ -23,6 +26,7 @@ interface WorkerInfo {
   lastUpdateTime: number;
   lastAttempts: number;
   alive: boolean;
+  engine: Engine;
 }
 
 class TaskManager {
@@ -54,7 +58,8 @@ class TaskManager {
     patterns: PatternRule[],
     threads: number = 4,
     logicOperator: 'AND' | 'OR' = 'OR',
-    groups: RuleGroup[] = []
+    groups: RuleGroup[] = [],
+    engine: Engine = 'cpu'
   ): Promise<string> {
     const taskId = uuidv4();
 
@@ -77,6 +82,7 @@ class TaskManager {
       matchesFound: 0,
       logicOperator,
       groups,
+      engine,
     };
 
     // 保存到数据库
@@ -84,11 +90,16 @@ class TaskManager {
     this.tasks.set(taskId, task);
     this.sseClients.set(taskId, new Set());
 
-    console.log(`[TaskManager] 任务已创建: taskId=${taskId}, patterns=${patterns.length}, groups=${groups.length}, threads=${threads}, logic=${logicOperator}`);
+    console.log(`[TaskManager] 任务已创建: taskId=${taskId}, engine=${engine}, patterns=${patterns.length}, groups=${groups.length}, threads=${threads}, logic=${logicOperator}`);
 
     // 启动真实 Worker 线程（每个线程独立 V8 isolate，可并行吃满多核）
-    for (let i = 0; i < threads; i++) {
-      this.startWorker(taskId, patterns, logicOperator, groups);
+    // GPU 引擎只有一块卡，单 worker 即可（threads 参数仅对 CPU 生效）
+    if (engine === 'gpu') {
+      this.startWorker(taskId, patterns, logicOperator, groups, 'gpu');
+    } else {
+      for (let i = 0; i < threads; i++) {
+        this.startWorker(taskId, patterns, logicOperator, groups, 'cpu');
+      }
     }
 
     return taskId;
@@ -98,11 +109,12 @@ class TaskManager {
     taskId: string,
     patterns: PatternRule[],
     logicOperator: 'AND' | 'OR',
-    groups: RuleGroup[]
+    groups: RuleGroup[],
+    engine: Engine = 'cpu'
   ) {
     const workerId = `${taskId}_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
 
-    const worker = new Worker(WORKER_PATH, {
+    const worker = new Worker(engine === 'gpu' ? GPU_WORKER_PATH : WORKER_PATH, {
       workerData: {
         patterns: patterns.map(p => ({
           id: p.id,
@@ -145,6 +157,7 @@ class TaskManager {
       lastUpdateTime: Date.now(),
       lastAttempts: 0,
       alive: true,
+      engine,
     };
 
     worker.on('message', (msg: any) => {
@@ -197,10 +210,39 @@ class TaskManager {
         console.error(`[TaskManager] Worker ${info.workerId} error: ${msg.message}`);
         break;
       }
+      case 'gpu_unsupported': {
+        // GPU 引擎无法处理当前规则(exe 缺失/规则不含必需字面量)——回落 CPU
+        console.warn(`[TaskManager] GPU 引擎不可用(${msg.message})—— 任务 ${taskId} 回落 CPU`);
+        this.fallbackToCpu(taskId);
+        break;
+      }
       case 'stopped': {
         info.alive = false;
         break;
       }
+    }
+  }
+
+  /** GPU worker 全部退出后,用 CPU worker 重启该任务 */
+  private fallbackToCpu(taskId: string) {
+    const task = this.tasks.get(taskId);
+    if (!task || task.status !== 'running' || task.engine === 'cpu') return;
+    task.engine = 'cpu';
+
+    const toKill: WorkerInfo[] = [];
+    this.workers.forEach((info, key) => {
+      if (info.taskId === taskId && info.engine === 'gpu') {
+        toKill.push(info);
+        this.workers.delete(key);
+      }
+    });
+    for (const info of toKill) {
+      try { info.worker.postMessage({ type: 'stop' }); } catch { /* 已退出 */ }
+      try { info.worker.terminate(); } catch { /* 已退出 */ }
+    }
+
+    for (let i = 0; i < task.threads; i++) {
+      this.startWorker(taskId, task.patterns, task.logicOperator || 'OR', task.groups || [], 'cpu');
     }
   }
 

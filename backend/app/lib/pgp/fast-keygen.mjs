@@ -72,7 +72,7 @@ function writeChecksum(buf) {
   return Buffer.from([(s >> 8) & 0xff, s & 0xff]);
 }
 
-/** 组装公钥包体（writePublicKey） */
+/** 组装公钥包体（writePublicKey）—— 供 GPU worker 复用,故导出 */
 function buildPublicKeyBody(created, q) {
   return Buffer.concat([
     Buffer.from([4]),                       // version 4
@@ -101,6 +101,10 @@ export function packet(tag, payload) {
     : Buffer.from([0xC0 | tag, 192 + (len >> 8), len & 0xff]);
   return Buffer.concat([header, payload]);
 }
+
+// 以下三个内部函数导出给 GPU worker(gpu.worker.mjs)复用,
+// 保证 GPU 命中重建的密钥字节级一致
+export { mpi, buildPublicKeyBody, buildSecretKeyBody };
 
 /** 指纹 = SHA1(0x99 || uint16be(len) || body) */
 export function computeFingerprint(body) {
